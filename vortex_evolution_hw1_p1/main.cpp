@@ -39,9 +39,9 @@ public:
 	};
 	
 	void initialize(void);
-	void calc_velocity(double*, double*, double*, double*);
+	void calc_velocity(double*, double*, double*, double*, double*, double*, double*);
 	void integrate(void);
-	void run(double, int);
+	void run(double);
 	void write_solution(int step);
 };
 
@@ -161,7 +161,7 @@ void VortexSolver::write_solution(int step){
 	fclose(fp);
 }
 
-void VortexSolver::calc_velocity(double *xi, double *yi, double *ui, double *vi){
+void VortexSolver::calc_velocity(double *xtarget, double *ytarget, double *xsource, double *ysource, double *alpha_source, double *ui, double *vi){
 	double delta = 1.0;
 	double delta2 = pow(delta, 2);
 	
@@ -171,11 +171,11 @@ void VortexSolver::calc_velocity(double *xi, double *yi, double *ui, double *vi)
 		u_i = 0.0;
 		v_i = 0.0;
 		for(int j=0; j<n; j++){
-			dxij = xi[i] - xi[j];
-			dyij = yi[i] - yi[j];
+			dxij = xtarget[i] - xsource[j];
+			dyij = ytarget[i] - ysource[j];
 			r2 = pow(dxij, 2) + pow(dyij, 2);
 			rt2 = r2/delta2;
-			double tmp = alpha[j]/(2.0*M_PI*(r2 + 1e-16))*(1.0 - exp(-rt2));
+			double tmp = alpha_source[j]/(2.0*M_PI*(r2 + 1e-16))*(1.0 - exp(-rt2));
 			u_i += dyij*tmp;
 			v_i -= dxij*tmp;
 		}
@@ -189,29 +189,27 @@ void VortexSolver::integrate(void){
 		xrk[i] = x[i];
 		yrk[i] = y[i];
 	}
-	calc_velocity(xrk, yrk, k1u, k1v);
-	
+	calc_velocity(xrk, yrk, xrk, yrk, alpha, k1u, k1v);
 	for(int i=0; i<n; i++){
 		xrk[i] = x[i] + k1u[i]*dt*0.5;
 		yrk[i] = y[i] + k1v[i]*dt*0.5;
 	}
 
-	calc_velocity(xrk, yrk, k2u, k2v);
+	calc_velocity(xrk, yrk, xrk, yrk, alpha, k2u, k2v);
 
 	for(int i=0; i<n; i++){
 		xrk[i] = x[i] + k2u[i]*dt*0.5;
 		yrk[i] = y[i] + k2v[i]*dt*0.5;
 	}
 
-	calc_velocity(xrk, yrk, k3u, k3v);
+	calc_velocity(xrk, yrk, xrk, yrk, alpha, k3u, k3v);
 
 	for(int i=0; i<n; i++){
 		xrk[i] = x[i] + k3u[i]*dt;
 		yrk[i] = y[i] + k3v[i]*dt;
 	}
 
-	calc_velocity(xrk, yrk, k4u, k4v);
-
+	calc_velocity(xrk, yrk, xrk, yrk, alpha, k4u, k4v);
 	for(int i=0; i<n; i++){
 		u[i] = (k1u[i] + 2.0*k2u[i] + 2.0*k3u[i] + k4u[i])/6.0;
 		v[i] = (k1v[i] + 2.0*k2v[i] + 2.0*k3v[i] + k4v[i])/6.0;
@@ -220,27 +218,35 @@ void VortexSolver::integrate(void){
 	}
 }
 
-void VortexSolver::run(double tf, int nthreadsi){
+void VortexSolver::run(double tf){
 	int step = 0;
-	clock_t cpu_t;
+	
+	struct timespec start, finish;
+	double elapsed;
+
 	while(1){
-		cpu_t = clock();
+		// timing start
+		clock_gettime(CLOCK_MONOTONIC, &start);
+	
 		integrate();
-		cpu_t = clock() - cpu_t;
-		if(step%write_freq == 0){
-			write_solution(step);
-		}
-		printf("TIME: %0.8e CPU TIME: %0.8fs\n", t, ((float)cpu_t)/CLOCKS_PER_SEC/nthreadsi);
+
+		// timings calculations
+		clock_gettime(CLOCK_MONOTONIC, &finish);
+		elapsed = (finish.tv_sec - start.tv_sec);
+		elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+		
+		if(step%write_freq == 0) write_solution(step);
+
+		printf("TIME: %0.8e CPU TIME: %0.8fs\n", t, elapsed);
 		t += dt;
 		step += 1;
-		if(t > tf){
-			break;
-		}
+		
+		if(t > tf) break;
 	}
 }
 
 int main(int argc, char** argv){
 	VortexSolver vs(50, 25, 0.1);
-	vs.run(100.0, 4);
+	vs.run(100.0);
 	return 0;
 }
